@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>三人行，必有我撕 | 賽局理論決策演算法</title>
+    <!-- Tailwind + Font Awesome -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-tap-highlight-color: transparent; background-color: #030712; }
+        .hidden-screen { display: none !important; }
+        .btn-active-c { background-color: #10b981 !important; color: white !important; border-color: #34d399 !important; }
+        .btn-active-a { background-color: #ef4444 !important; color: white !important; border-color: #f87171 !important; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .text-xxs { font-size: 0.65rem; }
+        .bg-gray-850 { background-color: #1f2937; }
+        .border-gray-850 { border-color: #374151; }
+        .text-red-450 { color: #f97316; }
+        .shadow-inner-custom { box-shadow: inset 0 2px 4px 0 rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col items-center justify-center p-4 selection:bg-indigo-500 selection:text-white">
+
+    <!-- 全局提示框 Modal -->
+    <div id="modal-overlay" class="fixed inset-0 bg-black bg-opacity-90 z-50 hidden-screen flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-gray-900 rounded-2xl max-w-sm w-full p-6 text-center border border-gray-800 shadow-2xl fade-in">
+            <h3 id="modal-title" class="text-xl font-black mb-2 text-indigo-400">提示</h3>
+            <p id="modal-msg" class="text-gray-300 mb-6 text-sm leading-relaxed"></p>
+            <button onclick="window.closeModal?.()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition">確定</button>
+        </div>
+    </div>
+
+    <!-- 載入中畫面 -->
+    <div id="screen-loading" class="w-full max-w-md text-center fade-in">
+        <i class="fas fa-microchip fa-spin text-4xl text-indigo-500 mb-4"></i>
+        <p class="text-gray-400 font-mono tracking-wider">正在載入決策矩陣...</p>
+        <p class="text-xs text-gray-600 mt-2">初始化賽局引擎</p>
+    </div>
+
+    <!-- 1. 首頁選單 -->
+    <div id="screen-menu" class="w-full max-w-md hidden-screen fade-in flex flex-col items-center">
+        <div class="text-center mb-8">
+            <div class="inline-flex p-4 bg-indigo-950/45 rounded-3xl border border-indigo-800/40 mb-4 shadow-inner-custom">
+                <i class="fas fa-bezier-curve text-5xl text-indigo-400 animate-pulse"></i>
+            </div>
+            <h1 class="text-3xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-500">三國囚徒</h1>
+            <p class="text-xs text-indigo-300 font-bold tracking-widest uppercase mt-1">賽局理論與動態決策演算法</p>
+            <p class="text-gray-400 mt-3 text-sm leading-relaxed">
+                消除刻板印象，擁抱理性演算。<br>
+                AI 演算子將依據你和對手的歷史決策、分差、剩餘回合數，即時調整最優化期望值。
+            </p>
+        </div>
+
+        <div class="w-full space-y-4">
+            <button onclick="window.startLocalMode?.()" class="w-full py-4 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-2xl font-bold flex items-center justify-between px-6 transition shadow-lg group">
+                <span class="flex items-center"><i class="fas fa-brain text-xl mr-3 text-indigo-400 group-hover:scale-110 transition"></i> 本地模式 (對戰賽局 AI)</span>
+                <i class="fas fa-chevron-right text-gray-600"></i>
+            </button>
+            <button id="online-mode-btn" onclick="window.tryOnlineMode?.()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-bold flex items-center justify-between px-6 transition shadow-lg shadow-indigo-950/50 group">
+                <span class="flex items-center"><i class="fas fa-globe text-xl mr-3 text-white group-hover:scale-110 transition"></i> 線上模式 (三人即時連線)</span>
+                <i class="fas fa-chevron-right text-indigo-200"></i>
+            </button>
+        </div>
+
+        <!-- 規則說明 -->
+        <div class="w-full mt-8 bg-gray-900/50 rounded-2xl p-4 border border-gray-850 text-xs text-gray-400 space-y-2">
+            <p class="font-bold text-gray-300 mb-1 flex items-center"><i class="fas fa-info-circle mr-1.5 text-indigo-400"></i> 博弈矩陣結算規則（兩兩對決獨立結算）：</p>
+            <div class="grid grid-cols-2 gap-2 text-left bg-gray-950/50 p-2.5 rounded-lg border border-gray-900 mb-2 font-mono">
+                <div>🤝 雙方皆合作: 各得 <span class="text-emerald-400 font-bold">+20</span></div>
+                <div>⚔️ 雙方皆攻擊: 各得 <span class="text-red-400 font-bold">-20</span></div>
+                <div class="col-span-2">🗡️ 單方背刺: 攻擊者 <span class="text-emerald-400 font-bold">+25</span> | 合作者 <span class="text-orange-400 font-bold">-5</span></div>
+            </div>
+            <p class="text-gray-400"><i class="fas fa-fire text-amber-500 mr-1"></i> <span class="text-amber-400 font-bold">動態信賴連擊：</span>雙方連續合作，其合作分數逐輪升級！</p>
+            <p class="pl-4 font-mono">1 輪合作: <span class="font-bold">+20</span> | 連續 2 輪: <span class="text-emerald-400 font-bold">+30</span> | 連續 3 輪+: <span class="text-yellow-400 font-bold">+40</span></p>
+        </div>
+    </div>
+
+    <!-- 2. 線上大廳 -->
+    <div id="screen-lobby" class="w-full max-w-md hidden-screen fade-in">
+        <button onclick="window.showScreen?.('screen-menu')" class="text-gray-400 hover:text-white mb-6 flex items-center text-sm font-semibold">
+            <i class="fas fa-arrow-left mr-2 text-xs"></i> 返回首頁
+        </button>
+        <h2 class="text-2xl font-black mb-6 flex items-center"><i class="fas fa-globe mr-2.5 text-indigo-400"></i>線上聯機大廳</h2>
+        
+        <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 mb-6 shadow-xl">
+            <label class="block text-xs font-black uppercase tracking-wider text-gray-400 mb-2">主公暱稱代碼</label>
+            <input type="text" id="player-name-input" placeholder="輸入玩家代號..." class="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 mb-4 transition font-bold" value="謀士_Player">
+            
+            <button onclick="window.createRoom?.()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold transition mb-4 shadow-md shadow-indigo-950/50">
+                創建新戰略通訊室
+            </button>
+            
+            <div class="relative flex py-3 items-center">
+                <div class="flex-grow border-t border-gray-800"></div>
+                <span class="flex-shrink-0 mx-4 text-gray-500 text-xs font-bold uppercase tracking-wider">或加入已有通訊室</span>
+                <div class="flex-grow border-t border-gray-800"></div>
+            </div>
+            
+            <div class="flex gap-2 mt-4">
+                <input type="text" id="room-code-input" placeholder="4位房號" maxlength="4" class="w-2/3 bg-gray-950 border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-center font-mono text-xl tracking-widest font-bold uppercase">
+                <button onclick="window.joinRoom?.()" class="w-1/3 py-3.5 bg-gray-800 hover:bg-gray-700 rounded-xl font-bold transition border border-gray-700 text-gray-200">
+                    接入房間
+                </button>
+            </div>
+        </div>
+        <div id="online-warning" class="text-center text-xs text-amber-500 bg-amber-950/30 p-2 rounded-lg hidden">
+            <i class="fas fa-exclamation-triangle mr-1"></i> Firebase 尚未連線，請檢查網路或稍後重試
+        </div>
+    </div>
+
+    <!-- 3. 房間等待室 -->
+    <div id="screen-waiting" class="w-full max-w-md hidden-screen fade-in text-center">
+        <button onclick="window.leaveRoom?.()" class="text-gray-400 hover:text-white absolute left-4 top-4 text-sm"><i class="fas fa-times"></i></button>
+        <h2 class="text-2xl font-black mb-1">戰略通訊室 <span id="display-room-code" class="text-indigo-400 font-mono tracking-wider"></span></h2>
+        <p class="text-gray-400 text-sm mb-8">正在調度線上作戰模組 (三方聯軍準備)...</p>
+        
+        <div id="waiting-players-list" class="space-y-3 mb-8"></div>
+
+        <button id="btn-start-game" onclick="window.startOnlineGame?.()" class="w-full py-4 bg-gray-800 text-gray-500 rounded-2xl font-bold transition cursor-not-allowed hidden" disabled>等待聯防就位...</button>
+        <button onclick="window.leaveRoom?.()" class="w-full py-3 bg-transparent text-gray-500 hover:text-red-400 mt-4 rounded-xl font-bold transition border border-gray-850 text-sm">終止連線</button>
+    </div>
+
+    <!-- 4. 遊戲主畫面 (決策階段) -->
+    <div id="screen-game" class="w-full max-w-md hidden-screen fade-in">
+        <div class="flex justify-between items-center mb-6 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-md">
+            <div><p class="text-xxs text-gray-500 font-bold uppercase tracking-widest font-mono">ROUND</p><p class="text-xl font-black text-indigo-400 font-mono"><span id="ui-round">1</span> / 10</p></div>
+            <div class="text-right"><p class="text-xxs text-gray-500 font-bold uppercase tracking-widest font-mono">MY SCORE</p><p class="text-xl font-black text-amber-400 font-mono" id="ui-my-score">0</p></div>
+        </div>
+        <div id="ui-choice-cards" class="space-y-4 mb-6"></div>
+        <button id="btn-lock-choice" onclick="window.submitChoice?.()" class="w-full py-4 bg-gray-850 text-gray-500 rounded-2xl font-bold text-lg transition shadow-lg cursor-not-allowed border border-gray-800" disabled>決策矩陣未完成</button>
+        <p id="ui-waiting-others" class="text-center text-indigo-400 mt-4 font-semibold text-sm animate-pulse hidden font-mono"><i class="fas fa-network-wired mr-1.5"></i> EVALUATING OPPONENTS DECISIONS...</p>
+    </div>
+
+    <!-- 5. 回合結算畫面 -->
+    <div id="screen-round-result" class="w-full max-w-md hidden-screen fade-in">
+        <h2 class="text-2xl font-black text-center mb-1">對決結果日誌</h2>
+        <p class="text-center text-xs text-gray-500 tracking-wider uppercase mb-6 font-mono">STAGE <span id="res-ui-round" class="text-indigo-400 font-bold"></span> REPORT</p>
+        <div id="local-ai-minds" class="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-5 shadow-xl hidden">
+            <h3 class="text-xs font-black text-gray-400 mb-3 border-b border-gray-850 pb-2 flex items-center font-mono"><i class="fas fa-satellite-dish mr-1.5 text-indigo-400"></i> GAME-THEORETIC TELEMETRY (AI 演算數據)</h3>
+            <div id="ai-psychology-container" class="space-y-4 text-xs font-mono"></div>
+        </div>
+        <div class="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-5 shadow-xl">
+            <h3 class="text-xs font-black text-gray-400 mb-3 border-b border-gray-850 pb-2 flex items-center font-mono"><i class="fas fa-chart-line mr-1.5 text-amber-500"></i> LEADERBOARD (即時積分榜)</h3>
+            <div id="res-ui-leaderboard" class="space-y-2 font-mono"></div>
+        </div>
+        <div class="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-6 shadow-xl">
+            <h3 class="text-xs font-black text-gray-400 mb-3 border-b border-gray-850 pb-2 flex items-center font-mono"><i class="fas fa-file-code mr-1.5 text-indigo-400"></i> DECISION MATRIX LOGS</h3>
+            <div id="res-ui-logs" class="space-y-3 max-h-60 overflow-y-auto no-scrollbar text-sm font-mono"></div>
+        </div>
+        <button id="btn-next-round" onclick="window.readyForNextRound?.()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-bold transition shadow-lg shadow-indigo-950/50 text-white">進入下一決策階段</button>
+    </div>
+
+    <!-- 6. 最終結算 -->
+    <div id="screen-final" class="w-full max-w-md hidden-screen fade-in text-center">
+        <div class="inline-flex p-4 bg-indigo-950/30 rounded-full border border-indigo-500/30 mb-4 animate-bounce"><i class="fas fa-trophy text-5xl text-amber-400"></i></div>
+        <h2 class="text-3xl font-black mb-1 text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-yellow-300 to-orange-400 font-mono">SIMULATION COMPLETE</h2>
+        <p class="text-gray-400 text-sm mb-8">賽局終端模擬結算</p>
+        <div id="final-leaderboard" class="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-8 space-y-3 shadow-2xl font-mono"></div>
+        <button onclick="location.reload()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold transition shadow-lg">重啟戰略模擬</button>
+    </div>
+
+    <!-- 統一腳本: 完整重構消除錯誤，確保本地與線上模式穩定 -->
+    <script type="module">
+        // ---------- 全域變數 ----------
+        let currentMode = '';          // 'local', 'online'
+        let myId = '';
+        let myChoices = {};
+        let currentRoomId = null;
+        let unsubscribeRoom = null;
+        let isHost = false;
+        
+        // 本地狀態
+        let localState = {
+            round: 1, maxRounds: 10,
+            players: {},
+            coopStreaks: {},
+            lastLogs: [],
+            aiMinds: {}
+        };
+        
+        let onlineState = null;
+        let currentUser = null;     // firebase user
+        
+        // Firebase 引用 (延遲初始化)
+        let app, db, auth;
+        let firebaseReady = false;
+        
+        // ---------- UI 工具 ----------
+        window.showScreen = function(screenId) {
+            const screens = ['screen-loading', 'screen-menu', 'screen-lobby', 'screen-waiting', 'screen-game', 'screen-round-result', 'screen-final'];
+            screens.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden-screen');
+            });
+            const target = document.getElementById(screenId);
+            if (target) target.classList.remove('hidden-screen');
+        };
+        
+        window.showModal = function(title, msg) {
+            const modal = document.getElementById('modal-overlay');
+            if (!modal) return;
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-msg').innerHTML = msg;
+            modal.classList.remove('hidden-screen');
+        };
+        window.closeModal = function() {
+            const modal = document.getElementById('modal-overlay');
+            if (modal) modal.classList.add('hidden-screen');
+        };
+        
+        // 核心計分演算法 (純函數)
+        function calculateRound(playersMap, choicesMap, currentStreaks = {}) {
+            const uids = Object.keys(playersMap);
+            let roundPoints = {};
+            let logs = [];
+            let nextStreaks = { ...currentStreaks };
+            uids.forEach(uid => roundPoints[uid] = 0);
+            for (let i = 0; i < uids.length; i++) {
+                for (let j = i + 1; j < uids.length; j++) {
+                    const p1 = uids[i], p2 = uids[j];
+                    const c1 = (choicesMap[p1] && choicesMap[p1][p2]) ? choicesMap[p1][p2] : 'C';
+                    const c2 = (choicesMap[p2] && choicesMap[p2][p1]) ? choicesMap[p2][p1] : 'C';
+                    const streakKey = [p1, p2].sort().join('_');
+                    let currentStreakVal = currentStreaks[streakKey] || 0;
+                    let p1Delta = 0, p2Delta = 0, streakTriggered = false;
+                    if (c1 === 'C' && c2 === 'C') {
+                        currentStreakVal += 1;
+                        nextStreaks[streakKey] = currentStreakVal;
+                        let payout = 20;
+                        if (currentStreakVal === 2) payout = 30;
+                        if (currentStreakVal >= 3) payout = 40;
+                        p1Delta = payout; p2Delta = payout;
+                        streakTriggered = currentStreakVal > 1;
+                    } else {
+                        nextStreaks[streakKey] = 0;
+                        if (c1 === 'C' && c2 === 'A') { p1Delta = -5; p2Delta = 25; }
+                        else if (c1 === 'A' && c2 === 'C') { p1Delta = 25; p2Delta = -5; }
+                        else if (c1 === 'A' && c2 === 'A') { p1Delta = -20; p2Delta = -20; }
+                    }
+                    roundPoints[p1] += p1Delta; roundPoints[p2] += p2Delta;
+                    logs.push({ p1, p2, c1, c2, p1Delta, p2Delta, streak: nextStreaks[streakKey], streakTriggered });
+                }
+            }
+            let updatedPlayers = JSON.parse(JSON.stringify(playersMap));
+            uids.forEach(uid => { updatedPlayers[uid].score += roundPoints[uid]; });
+            return { updatedPlayers, logs, nextStreaks };
+        }
+        
+        // ---------- 策略 AI (本地模式) ----------
+        function runStrategicAI(round, state) {
+            const aiChoices = { 'p2': {}, 'p3': {} };
+            const logs = state.lastLogs || [];
+            let lastChoiceMap = { 'p1': { 'p2': 'C', 'p3': 'C' }, 'p2': { 'p1': 'C', 'p3': 'C' }, 'p3': { 'p1': 'C', 'p2': 'C' } };
+            if (round > 1 && logs.length) {
+                logs.forEach(l => {
+                    lastChoiceMap[l.p1][l.p2] = l.c1;
+                    lastChoiceMap[l.p2][l.p1] = l.c2;
+                });
+            }
+            const totalRounds = state.maxRounds;
+            const endgameFactor = (round - 1) / (totalRounds - 1);
+            ['p2', 'p3'].forEach(aiId => {
+                const mind = state.aiMinds[aiId];
+                const otherPlayers = ['p1', 'p2', 'p3'].filter(id => id !== aiId);
+                otherPlayers.forEach(opponentId => {
+                    const oldTrust = mind.trustScores[opponentId] ?? 0.8;
+                    const lastAction = lastChoiceMap[opponentId][aiId];
+                    const actualValue = lastAction === 'C' ? 1.0 : 0.0;
+                    const alpha = 0.4;
+                    let currentTrust = (alpha * actualValue) + ((1 - alpha) * oldTrust);
+                    mind.trustScores[opponentId] = currentTrust;
+                    const myScore = state.players[aiId].score;
+                    const oppScore = state.players[opponentId].score;
+                    let curbLeaderImpact = 0.0;
+                    if (oppScore - myScore > 30) curbLeaderImpact = Math.min(0.3, (oppScore - myScore - 30) * 0.005);
+                    let pCooperate = currentTrust * (1.0 - endgameFactor * 0.45) - curbLeaderImpact;
+                    pCooperate = Math.max(0.0, Math.min(1.0, pCooperate));
+                    const decision = Math.random() < pCooperate ? 'C' : 'A';
+                    aiChoices[aiId][opponentId] = decision;
+                    if (opponentId === 'p1') {
+                        let reason = (endgameFactor > 0.8) ? `賽局接近極限 (折現率 ${(endgameFactor*100).toFixed(0)}%)，逆向歸納防範。` :
+                                     (curbLeaderImpact > 0.1) ? `玩家領先優勢 (抑制權重 ${(curbLeaderImpact*100).toFixed(0)}%)，實施遏制。` :
+                                     (currentTrust > 0.7) ? `信任結構健全 (${(currentTrust*100).toFixed(0)}%)，追求連擊收益。` :
+                                     `信任赤字 (${(currentTrust*100).toFixed(0)}%)，採取保險防御。`;
+                        mind.lastDecisionReason = reason;
+                        mind.lastMetrics = { trust: currentTrust, discount: endgameFactor, coopProb: pCooperate };
+                    }
+                });
+            });
+            return aiChoices;
+        }
+        
+        // ---------- 本地模式啟動 ----------
+        window.startLocalMode = function() {
+            currentMode = 'local';
+            myId = 'p1';
+            localState = {
+                round: 1, maxRounds: 10,
+                players: { 'p1': { name: '玩家 (你)', score: 0 }, 'p2': { name: 'Agent Alpha (演算子 α)', score: 0 }, 'p3': { name: 'Agent Beta (演算子 β)', score: 0 } },
+                coopStreaks: {},
+                lastLogs: [],
+                aiMinds: {
+                    'p2': { trustScores: { 'p1': 0.8, 'p3': 0.8 }, lastDecisionReason: '系統初始化，評估初始賽局預期。', lastMetrics: { trust: 0.8, discount: 0.0, coopProb: 0.8 } },
+                    'p3': { trustScores: { 'p1': 0.8, 'p2': 0.8 }, lastDecisionReason: '系統初始化，評估初始賽局預期。', lastMetrics: { trust: 0.8, discount: 0.0, coopProb: 0.8 } }
+                }
+            };
+            document.getElementById('local-ai-minds')?.classList.remove('hidden');
+            prepareGameUI(localState.players, localState.round, localState.coopStreaks);
+        };
+        
+        // ---------- 通用 UI 準備 ----------
+        function prepareGameUI(players, round, streaks) {
+            myChoices = {};
+            document.getElementById('ui-round').innerText = round;
+            document.getElementById('ui-my-score').innerText = players[myId]?.score ?? 0;
+            document.getElementById('ui-waiting-others').classList.add('hidden');
+            const lockBtn = document.getElementById('btn-lock-choice');
+            lockBtn.disabled = true;
+            lockBtn.className = "w-full py-4 bg-gray-900 text-gray-600 rounded-2xl font-bold text-lg transition border border-gray-800 cursor-not-allowed font-mono text-sm";
+            lockBtn.innerText = "決策矩陣未完成";
+            const container = document.getElementById('ui-choice-cards');
+            container.innerHTML = '';
+            Object.keys(players).forEach(uid => {
+                if (uid === myId) return;
+                const p = players[uid];
+                const streakKey = [myId, uid].sort().join('_');
+                const streakCount = streaks[streakKey] || 0;
+                let streakBadge = '';
+                if (streakCount > 0) {
+                    const levelColor = streakCount >= 3 ? 'from-amber-500 to-yellow-500' : 'from-emerald-500 to-teal-400';
+                    streakBadge = `<div class="inline-flex items-center gap-1 bg-gradient-to-r ${levelColor} text-xxs px-2.5 py-0.5 rounded-full shadow-md animate-pulse font-mono"><i class="fas fa-fire"></i> STREAK Lvl.${streakCount}</div>`;
+                }
+                const card = document.createElement('div');
+                card.className = "bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl";
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-4">
+                        <div><span class="text-base font-bold text-gray-200">策略對決：<span class="text-indigo-300 font-extrabold font-mono">${p.name}</span></span><div class="mt-1">${streakBadge}</div></div>
+                        <span class="text-xs bg-gray-950 px-2.5 py-1 rounded-lg text-gray-400 font-mono border border-gray-800">SCORE: ${p.score}</span>
+                    </div>
+                    <div class="flex gap-3">
+                        <button data-uid="${uid}" data-choice="C" class="choice-btn flex-1 py-3.5 rounded-xl border border-gray-850 bg-gray-850 text-gray-300 font-extrabold hover:bg-gray-800 transition group"><i class="fas fa-handshake mr-1.5 text-emerald-500"></i>合作 (C)</button>
+                        <button data-uid="${uid}" data-choice="A" class="choice-btn flex-1 py-3.5 rounded-xl border border-gray-850 bg-gray-850 text-gray-300 font-extrabold hover:bg-gray-800 transition group"><i class="fas fa-crosshairs mr-1.5 text-red-500"></i>攻擊 (A)</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+            document.querySelectorAll('.choice-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const uid = btn.getAttribute('data-uid');
+                    const choice = btn.getAttribute('data-choice');
+                    selectChoiceHandler(uid, choice, btn);
+                });
+            });
+            showScreen('screen-game');
+        }
+        
+        function selectChoiceHandler(targetId, choiceType, btnElement) {
+            myChoices[targetId] = choiceType;
+            const parent = btnElement.parentElement;
+            parent.querySelectorAll('button').forEach(b => {
+                b.classList.remove('btn-active-c', 'btn-active-a');
+            });
+            if (choiceType === 'C') btnElement.classList.add('btn-active-c');
+            else btnElement.classList.add('btn-active-a');
+            const oppCount = (currentMode === 'local') ? 2 : (onlineState ? Object.keys(onlineState.players).length - 1 : 0);
+            if (Object.keys(myChoices).length === oppCount && oppCount > 0) {
+                const lockBtn = document.getElementById('btn-lock-choice');
+                lockBtn.disabled = false;
+                lockBtn.className = "w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-lg transition shadow-lg shadow-indigo-900/50 uppercase tracking-wider";
+                lockBtn.innerText = "呈交並鎖定戰略";
+            }
+        }
+        
+        window.submitChoice = async function() {
+            document.getElementById('btn-lock-choice').classList.add('hidden');
+            document.getElementById('ui-waiting-others').classList.remove('hidden');
+            if (currentMode === 'local') {
+                setTimeout(() => {
+                    const aiChoices = runStrategicAI(localState.round, localState);
+                    let allChoices = { 'p1': myChoices, ...aiChoices };
+                    const { updatedPlayers, logs, nextStreaks } = calculateRound(localState.players, allChoices, localState.coopStreaks);
+                    localState.players = updatedPlayers;
+                    localState.lastLogs = logs;
+                    localState.coopStreaks = nextStreaks;
+                    showRoundResult(localState.players, localState.lastLogs, localState.round);
+                }, 500);
+            } else if (currentMode === 'online' && db && currentRoomId) {
+                try {
+                    const roomRef = doc(db, 'rooms', currentRoomId);
+                    await updateDoc(roomRef, { [`currentChoices.${myId}`]: myChoices });
+                } catch(e) { console.error(e); showModal('錯誤', '送出決策失敗'); }
+            }
+        };
+        
+        function showRoundResult(players, logs, round) {
+            document.getElementById('res-ui-round').innerText = round;
+            const aiPanel = document.getElementById('local-ai-minds');
+            if (currentMode === 'local' && localState.aiMinds) {
+                aiPanel.classList.remove('hidden');
+                const container = document.getElementById('ai-psychology-container');
+                container.innerHTML = '';
+                Object.entries(localState.aiMinds).forEach(([aiId, mind]) => {
+                    const name = players[aiId]?.name || aiId;
+                    const trustPercent = (mind.lastMetrics.trust * 100).toFixed(1);
+                    const discountPercent = (mind.lastMetrics.discount * 100).toFixed(0);
+                    const coopPercent = (mind.lastMetrics.coopProb * 100).toFixed(1);
+                    container.innerHTML += `<div class="bg-gray-950 p-4 rounded-xl border border-gray-850"><div class="flex justify-between items-center mb-2 border-b border-gray-850 pb-1.5"><span class="font-bold text-indigo-400"><i class="fas fa-cpu mr-1.5"></i> ${name}</span><span class="text-xxs text-gray-500">EVAL_METRIC</span></div><p class="text-gray-300 mb-3 text-xs">${mind.lastDecisionReason}</p><div class="space-y-2 text-xxs"><div><div class="flex justify-between"><span>信任權重</span><span>${trustPercent}%</span></div><div class="w-full bg-gray-900 rounded-full h-1.5"><div class="bg-indigo-500 h-full rounded-full" style="width:${trustPercent}%"></div></div></div><div><div class="flex justify-between"><span>終端修剪</span><span>${discountPercent}%</span></div><div class="w-full bg-gray-900 rounded-full h-1.5"><div class="bg-amber-500 h-full rounded-full" style="width:${discountPercent}%"></div></div></div><div><div class="flex justify-between"><span>合作機率</span><span class="text-emerald-400">${coopPercent}%</span></div><div class="w-full bg-gray-900 rounded-full h-1.5"><div class="bg-emerald-500 h-full rounded-full" style="width:${coopPercent}%"></div></div></div></div></div>`;
+                });
+            } else { aiPanel.classList.add('hidden'); }
+            // 排行榜
+            const sorted = Object.keys(players).sort((a,b)=> players[b].score - players[a].score);
+            const lb = document.getElementById('res-ui-leaderboard');
+            lb.innerHTML = '';
+            sorted.forEach((uid,idx) => {
+                const p = players[uid];
+                const isMe = uid === myId;
+                lb.innerHTML += `<div class="flex justify-between items-center p-3 rounded-xl ${isMe ? 'bg-indigo-950/40 border border-indigo-800' : 'bg-gray-950/50 border border-gray-850'}"><span class="font-bold text-sm flex items-center">${idx===0?'<i class="fas fa-crown text-amber-400 mr-1.5"></i>':`<span class="w-5 h-5 rounded-full bg-gray-800 text-center leading-5 text-xxs mr-1.5">${idx+1}</span>`} ${p.name}</span><span class="font-black ${p.score<0?'text-red-400':'text-emerald-400'}">${p.score} PT</span></div>`;
+            });
+            const logDiv = document.getElementById('res-ui-logs');
+            logDiv.innerHTML = '';
+            logs.forEach(log => {
+                const n1 = players[log.p1]?.name || log.p1, n2 = players[log.p2]?.name || log.p2;
+                const action1 = log.c1 === 'C' ? '<span class="text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded">COOP</span>' : '<span class="text-red-400 bg-red-950/50 px-2 py-0.5 rounded">DEFECT</span>';
+                const action2 = log.c2 === 'C' ? '<span class="text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded">COOP</span>' : '<span class="text-red-400 bg-red-950/50 px-2 py-0.5 rounded">DEFECT</span>';
+                logDiv.innerHTML += `<div class="bg-gray-950/50 p-3 rounded-xl border-l-4 border-indigo-500"><div class="flex justify-between mb-2"><span class="font-bold">${n1}</span><span class="text-gray-500">VS</span><span class="font-bold">${n2}</span></div><div class="flex justify-between"><div>${action1}<div class="font-bold ${log.p1Delta>0?'text-emerald-400':'text-red-400'}">${log.p1Delta>0?'+'+log.p1Delta:log.p1Delta}</div></div><div class="text-right">${action2}<div class="font-bold ${log.p2Delta>0?'text-emerald-400':'text-red-400'}">${log.p2Delta>0?'+'+log.p2Delta:log.p2Delta}</div></div></div>${log.streakTriggered?'<div class="mt-2 text-center text-amber-400 text-xs bg-amber-950/30 py-1 rounded"><i class="fas fa-fire"></i> 信賴連擊加成！</div>':''}</div>`;
+            });
+            showScreen('screen-round-result');
+        }
+        
+        window.readyForNextRound = async function() {
+            const btn = document.getElementById('btn-next-round');
+            btn.disabled = true; btn.innerText = "配置矩陣中...";
+            if (currentMode === 'local') {
+                if (localState.round >= localState.maxRounds) showFinalResult(localState.players);
+                else { localState.round++; prepareGameUI(localState.players, localState.round, localState.coopStreaks); }
+            } else if (currentMode === 'online' && db && currentRoomId) {
+                try { await updateDoc(doc(db, 'rooms', currentRoomId), { [`players.${myId}.ready`]: true }); } catch(e){}
+            }
+            btn.disabled = false;
+        };
+        
+        function showFinalResult(players) {
+            const sorted = Object.keys(players).sort((a,b)=> players[b].score - players[a].score);
+            const container = document.getElementById('final-leaderboard');
+            container.innerHTML = '';
+            sorted.forEach((uid,idx) => {
+                const p = players[uid];
+                container.innerHTML += `<div class="flex justify-between items-center p-4 rounded-xl border ${idx===0?'border-amber-600 bg-amber-950/30':idx===1?'border-gray-700 bg-gray-900':'border-orange-950 bg-orange-950/10'}"><span class="font-black mr-4">${idx===0?'🏆':`#${idx+1}`}</span><span class="font-bold">${p.name}</span><span class="font-black">${p.score} PT</span></div>`;
+            });
+            showScreen('screen-final');
+        }
+        
+        // ---------- Firebase 線上模組 (動態載入) ----------
+        let firestoreEnabled = false;
+        async function initFirebase() {
+            try {
+                const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
+                const { getAuth, signInAnonymously, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                const { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteField, collection } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+                const firebaseConfig = { apiKey: "AIzaSyAz26he3jfVUohRBCS0tppftwrC1fkyoAI", authDomain: "tribattle-2510b.firebaseapp.com", databaseURL: "https://tribattle-2510b-default-rtdb.asia-southeast1.firebasedatabase.app", projectId: "tribattle-2510b", storageBucket: "tribattle-2510b.firebasestorage.app", messagingSenderId: "13092666076", appId: "1:13092666076:web:d1e88d634d0d3ea4751219", measurementId: "G-VK21YBY2CB" };
+                const appFire = initializeApp(firebaseConfig);
+                auth = getAuth(appFire);
+                db = getFirestore(appFire);
+                window.db = db; window.auth = auth;
+                window.doc = doc; window.updateDoc = updateDoc; window.setDoc = setDoc; window.getDoc = getDoc; window.onSnapshot = onSnapshot; window.deleteField = deleteField; window.collection = collection;
+                await signInAnonymously(auth);
+                return new Promise((resolve) => {
+                    onAuthStateChanged(auth, (user) => { if (user) { currentUser = user; myId = user.uid; firestoreEnabled = true; resolve(true); } });
+                });
+            } catch(e) { console.warn("Firebase init failed:", e); return false; }
+        }
+        
+        window.tryOnlineMode = async function() {
+            if (!firestoreEnabled) {
+                showModal("連線失敗", "無法連接 Firebase，請確認網路後重新整理頁面。目前僅可使用本地模式。");
+                return;
+            }
+            showScreen('screen-lobby');
+        };
+        
+        window.createRoom = async function() {
+            if (!firestoreEnabled || !currentUser) return showModal('提示', '網路尚未就緒。');
+            const name = document.getElementById('player-name-input').value.trim() || '謀士';
+            const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+            const roomRef = doc(db, 'rooms', roomCode);
+            try {
+                showScreen('screen-loading');
+                await setDoc(roomRef, { id: roomCode, host: currentUser.uid, status: 'waiting', round: 1, players: { [currentUser.uid]: { name: name, score: 0, ready: false } }, currentChoices: {}, coopStreaks: {}, lastLogs: [] });
+                joinRoomLogic(roomCode, name);
+            } catch(e) { showModal('錯誤', '創建房間失敗'); showScreen('screen-lobby'); }
+        };
+        
+        window.joinRoom = async function() {
+            if (!firestoreEnabled || !currentUser) return showModal('提示', '網路未就緒');
+            const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+            const name = document.getElementById('player-name-input').value.trim() || '謀士';
+            if (code.length !== 4) return showModal('格式錯誤', '請輸入4位房號');
+            try {
+                showScreen('screen-loading');
+                const roomRef = doc(db, 'rooms', code);
+                const snap = await getDoc(roomRef);
+                if (!snap.exists()) throw new Error('房間不存在');
+                const data = snap.data();
+                if (data.status !== 'waiting') throw new Error('遊戲已開始');
+                if (Object.keys(data.players).length >= 3 && !data.players[currentUser.uid]) throw new Error('房間已滿');
+                await updateDoc(roomRef, { [`players.${currentUser.uid}`]: { name: name, score: 0, ready: false } });
+                joinRoomLogic(code, name);
+            } catch(e) { showModal('加入失敗', e.message); showScreen('screen-lobby'); }
+        };
+        
+        function joinRoomLogic(roomId, pname) {
+            currentMode = 'online';
+            currentRoomId = roomId;
+            const roomRef = doc(db, 'rooms', roomId);
+            if (unsubscribeRoom) unsubscribeRoom();
+            unsubscribeRoom = onSnapshot(roomRef, (snap) => {
+                if (!snap.exists()) { showModal('房間已關閉'); leaveRoom(); return; }
+                onlineState = snap.data();
+                isHost = onlineState.host === currentUser.uid;
+                processOnlineState();
+            });
+            showScreen('screen-waiting');
+        }
+        
+        window.leaveRoom = function() {
+            if (unsubscribeRoom) unsubscribeRoom();
+            currentRoomId = null; onlineState = null;
+            showScreen('screen-menu');
+        };
+        
+        function processOnlineState() {
+            if (!onlineState) return;
+            const uids = Object.keys(onlineState.players);
+            document.getElementById('display-room-code').innerText = onlineState.id;
+            const list = document.getElementById('waiting-players-list');
+            if (onlineState.status === 'waiting') {
+                list.innerHTML = uids.map(uid => `<div class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex justify-between"><span><i class="fas fa-terminal text-indigo-400 mr-2"></i> ${onlineState.players[uid].name} ${uid===onlineState.host?'(Host)':''}</span><span class="text-emerald-400 text-xs">CONNECTED</span></div>`).join('');
+                const startBtn = document.getElementById('btn-start-game');
+                if (isHost) {
+                    startBtn.classList.remove('hidden');
+                    if (uids.length === 3) { startBtn.disabled = false; startBtn.innerText = "開始模擬賽局"; startBtn.className = "w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-black text-white"; }
+                    else { startBtn.disabled = true; startBtn.innerText = `等待玩家 (${uids.length}/3)`; startBtn.className = "w-full py-4 bg-gray-900 text-gray-600 rounded-2xl cursor-not-allowed"; }
+                } else { startBtn.classList.remove('hidden'); startBtn.disabled = true; startBtn.innerText = uids.length===3?"等待主機開始":"等待集結..."; startBtn.className = "w-full py-4 bg-gray-900 text-gray-600 rounded-2xl"; }
+            } else if (onlineState.status === 'playing') {
+                const mySubmitted = onlineState.currentChoices?.[myId];
+                if (!mySubmitted) prepareGameUI(onlineState.players, onlineState.round, onlineState.coopStreaks || {});
+            } else if (onlineState.status === 'resolving') showRoundResult(onlineState.players, onlineState.lastLogs || [], onlineState.round);
+            else if (onlineState.status === 'finished') showFinalResult(onlineState.players);
+            
+            if (isHost && onlineState.status === 'playing' && onlineState.currentChoices && Object.keys(onlineState.currentChoices).length === 3) {
+                const { updatedPlayers, logs, nextStreaks } = calculateRound(onlineState.players, onlineState.currentChoices, onlineState.coopStreaks);
+                updateDoc(doc(db, 'rooms', currentRoomId), { players: updatedPlayers, lastLogs: logs, coopStreaks: nextStreaks, status: 'resolving', currentChoices: deleteField() });
+            }
+            if (isHost && onlineState.status === 'resolving') {
+                const allReady = Object.values(onlineState.players).every(p => p.ready === true);
+                if (allReady) {
+                    if (onlineState.round >= 10) updateDoc(doc(db, 'rooms', currentRoomId), { status: 'finished' });
+                    else {
+                        let updates = { status: 'playing', round: onlineState.round + 1 };
+                        Object.keys(onlineState.players).forEach(uid => updates[`players.${uid}.ready`] = false);
+                        updateDoc(doc(db, 'rooms', currentRoomId), updates);
+                    }
+                }
+            }
+        }
+        
+        window.startOnlineGame = function() {
+            if (isHost && currentRoomId && onlineState?.status === 'waiting' && Object.keys(onlineState.players).length === 3)
+                updateDoc(doc(db, 'rooms', currentRoomId), { status: 'playing', round: 1 });
+            else showModal("無法開始", "需要三位玩家到齊且您是主機");
+        };
+        
+        // 開機初始化
+        (async () => {
+            showScreen('screen-loading');
+            const fbReady = await initFirebase();
+            if (fbReady) { firestoreEnabled = true; document.getElementById('online-mode-btn')?.classList.remove('opacity-50'); }
+            else { document.getElementById('online-mode-btn')?.classList.add('opacity-50'); document.getElementById('online-warning')?.classList.remove('hidden'); }
+            showScreen('screen-menu');
+        })();
+    </script>
+</body>
+</html>
